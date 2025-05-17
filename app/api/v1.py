@@ -61,13 +61,18 @@ async def analyze(
     
     contents = await file.read()
     
-    # Submit to Celery task queue
-    task = analyze_audio.delay(
-        audio_bytes=contents,
+    # Create analysis request
+    request = AnalysisRequest(
         analysis_type=analysis_type,
         user_id=user_id,
         song_id=song_id,
-        generate_feedback=generate_feedback
+        generate_feedback=generate_feedback  # 피드백 생성 옵션 추가
+    )
+    
+    # Submit to Celery task queue
+    task = analyze_audio.delay(
+        audio_bytes=contents,
+        request_data=request.model_dump()
     )
     
     return {"task_id": task.id}

@@ -6,8 +6,8 @@ from pathlib import Path
 from datetime import datetime
 
 # 서버 URL
-API_URL = "http://localhost:8000"
-# API_URL = "https://analysis.maple.ne.kr"
+# API_URL = "http://localhost:8000"
+API_URL = "https://analysis.maple.ne.kr"
 # SONGS_API_URL = "http://localhost:8000/api/v1/songs"
 SONGS_API_URL = "https://media.maple.ne.kr/api/v1/songs"
 # 오디오 파일 디렉터리
