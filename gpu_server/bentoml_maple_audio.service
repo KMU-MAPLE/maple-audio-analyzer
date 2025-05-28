@@ -1,0 +1,29 @@
+[Unit]
+Description=BentoML Maple Audio GPU Inference Service
+After=network.target
+
+[Service]
+User=elicer
+Group=elicer
+WorkingDirectory=/home/elicer/maple-audio-analyzer/gpu_server
+Environment="MODEL_DIR=/home/elicer/maple-audio-analyzer/models"
+Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="TF_FORCE_GPU_ALLOW_GROWTH=true"
+Environment="TF_XLA_FLAGS=--tf_xla_auto_jit=2"
+
+# Python 가상환경 활성화
+ExecStartPre=/bin/bash -c 'source /home/elicer/maple-audio-analyzer/.venv/bin/activate'
+
+# BentoML 서비스 실행
+ExecStart=/home/elicer/.local/bin/bentoml serve service:MapleAudioGPUInferenceService --production --port 3000 --host 0.0.0.0
+
+# 또는 이미 빌드된 Bento 실행
+# ExecStart=/home/elicer/.local/bin/bentoml serve maple_audio_gpu_inference:latest --production --port 3000 --host 0.0.0.0
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/bentoml_maple_audio.log
+StandardError=append:/var/log/bentoml_maple_audio_error.log
+
+[Install]
+WantedBy=multi-user.target 

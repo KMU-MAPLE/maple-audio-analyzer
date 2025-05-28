@@ -29,8 +29,61 @@ from app.db import (
     get_song_analysis_results, get_song_comparison_results,
     get_reference_features, get_reference_features_list, delete_reference_features
 )
+from workers.gpu_client import gpu_client, is_gpu_service_available  # GPU 클라이언트 임포트
 
 router = APIRouter(prefix="/v1")
+
+# GPU 상태 확인 라우트
+@router.get("/gpu/status", response_model=Dict[str, Any])
+async def check_gpu_status():
+    """
+    GPU 추론 서비스의 상태를 확인합니다.
+    
+    Returns:
+    - available: GPU 서비스 사용 가능 여부
+    - url: GPU 서비스 URL
+    - details: 추가 상태 정보
+    """
+    is_available = is_gpu_service_available()
+    gpu_url = os.environ.get("GPU_INFERENCE_SERVICE_URL", "not set")
+    
+    # 간단한 테스트 데이터로 서비스 응답 시간 측정
+    details = {"message": "GPU 서비스가 정상적으로 연결되어 있지 않습니다."}
+    response_time = None
+    
+    if is_available:
+        # 실제 연결 테스트
+        import time
+        import numpy as np
+        
+        # 간단한 테스트 데이터 생성 (E4 음 - 329.63Hz 사인파)
+        sr = 22050  # 샘플링 레이트
+        duration = 0.1  # 100ms
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        frequency = 329.63
+        test_data = 0.5 * np.sin(2 * np.pi * frequency * t)
+        
+        # pYIN API 호출 시간 측정
+        start_time = time.time()
+        try:
+            result = gpu_client.extract_pitch_with_pyin([test_data], sr)
+            response_time = time.time() - start_time
+            details = {
+                "message": "GPU 서비스가 정상적으로 연결되어 있습니다.",
+                "response_time_ms": round(response_time * 1000, 2),
+                "test_result": result
+            }
+        except Exception as e:
+            details = {
+                "message": "GPU 서비스 연결 오류가 발생했습니다.",
+                "error": str(e)
+            }
+    
+    return {
+        "available": is_available,
+        "url": gpu_url,
+        "details": details
+    }
 
 
 @router.post("/analyze", response_model=TaskResponse)

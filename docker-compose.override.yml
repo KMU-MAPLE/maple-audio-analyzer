@@ -1,0 +1,20 @@
+# Docker Compose 오버라이드 파일 예제
+# 사용법: cp docker-compose.override.yml.example docker-compose.override.yml
+# 그리고 SSH_PRIVATE_KEY 환경 변수를 적절히 수정하세요.
+
+services:
+  api:
+    environment:
+      # SSH 키는 환경 변수로 설정하는 대신 파일 마운트 방식 사용
+      - SSH_TUNNEL=true  # SSH 터널 활성화
+    volumes:
+      # SSH 키 파일 직접 마운트 (읽기 전용)
+      - ${HOME}/.ssh/elice-cloud-ondemand-4b44d9b0-ae6b-4f03-b289-899813d3af87.pem:/root/.ssh/id_rsa:ro
+  
+  worker:
+    environment:
+      # SSH 키는 환경 변수로 설정하는 대신 파일 마운트 방식 사용
+      - SSH_TUNNEL=true  # SSH 터널 활성화
+    volumes:
+      # SSH 키 파일 직접 마운트 (읽기 전용)
+      - ${HOME}/.ssh/elice-cloud-ondemand-4b44d9b0-ae6b-4f03-b289-899813d3af87.pem:/root/.ssh/id_rsa:ro 

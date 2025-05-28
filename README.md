@@ -46,6 +46,50 @@ This server provides a FastAPI gateway with Celery workers for CPU/GPU-intensive
 Once running, access the Swagger documentation at:
 - http://localhost:8000/docs
 
+## 🖥️ GPU Server Integration
+
+This project supports offloading resource-intensive audio analysis tasks to a dedicated GPU server using BentoML:
+
+### Features
+
+- **SSH Port Forwarding**: Securely connect to the GPU server via SSH tunnel
+- **Graceful Fallback**: Automatically falls back to local CPU processing if GPU server is unavailable
+- **Automated Connection**: Scripts for establishing and monitoring SSH tunnels
+- **BentoML-based API**: Standardized API for audio processing tasks
+
+### Setup GPU Server
+
+1. Setup a GPU server with CUDA, cuDNN, and Python
+2. Copy the `gpu_server` directory to the GPU server
+3. Follow the instructions in `gpu_server/README.md` to set up the BentoML service
+
+### Connect to GPU Server
+
+1. Run the SSH tunnel setup script:
+   ```bash
+   ./scripts/setup_gpu_tunnel.sh your_username your_gpu_server_address
+   ```
+
+2. Test the connection:
+   ```bash
+   python scripts/check_gpu_service.py --test
+   ```
+
+3. Enable GPU service by setting the environment variable:
+   ```bash
+   export GPU_INFERENCE_SERVICE_URL="http://localhost:8888"
+   ```
+   
+   Or add it to your `.env` file for Docker deployment.
+
+### Supported GPU Operations
+
+The following operations can be accelerated on the GPU server:
+
+- Guitar technique prediction (`predict_techniques`)
+- CREPE-based pitch extraction (`extract_pitch_with_crepe`)
+- pYIN-based pitch extraction (`extract_pitch_with_pyin`)
+
 ## 🧩 Architecture
 
 This project follows a microservice architecture with the following components:
