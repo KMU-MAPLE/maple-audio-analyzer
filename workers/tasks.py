@@ -33,16 +33,13 @@ logger = get_task_logger(__name__)
 
 
 @celery_app.task(bind=True, name='workers.tasks.analyze_audio')
-def analyze_audio(self, audio_bytes, analysis_type='simple', user_id=None, song_id=None, generate_feedback=False):
+def analyze_audio(self, audio_bytes, request_dict=None):
     """
     Celery task to analyze audio content.
     
     Parameters:
     - audio_bytes: Binary content of the uploaded audio file
-    - analysis_type: Type of analysis to perform
-    - user_id: Optional user identifier
-    - song_id: Optional song identifier
-    - generate_feedback: Whether to generate textual feedback
+    - request_dict: Dictionary with additional analysis parameters
     
     Returns:
     - Dictionary with analysis results
@@ -51,12 +48,15 @@ def analyze_audio(self, audio_bytes, analysis_type='simple', user_id=None, song_
     self.update_state(state='STARTED', meta={'progress': 0})
     
     try:
-        # Process the request parameters (5%)
+        # Process the request dictionary if provided (5%)
         self.update_state(state='PROCESSING', meta={'progress': 5})
-        if user_id is None:
-            user_id = ""
-        if song_id is None:
-            song_id = ""
+        if request_dict is None:
+            request_dict = {}
+        
+        analysis_type = request_dict.get('analysis_type', 'simple')
+        user_id = request_dict.get('user_id')
+        song_id = request_dict.get('song_id')
+        generate_feedback = request_dict.get('generate_feedback', False)
         
         # 오디오 로드 (10%)
         self.update_state(state='PROCESSING', meta={'progress': 10})
@@ -198,6 +198,7 @@ def compare_audio(self, user_audio_bytes, user_id=None, song_id=None, generate_f
     """
     logger.info(f"Starting audio comparison task {self.request.id}")
     ref_features = get_reference_features(song_id)
+    # logger.info(f"Reference features for song_id {song_id}: {ref_features}")
     self.update_state(state='STARTED', meta={'progress': 5})
     
     # 참조 오디오와 비교
@@ -231,12 +232,15 @@ def compare_audio(self, user_audio_bytes, user_id=None, song_id=None, generate_f
     
     if 'features' in ref_features and 'midi_data' in ref_features['features']:
         midi_data = ref_features['features']['midi_data']
+        logger.info(f"MIDI 데이터 처리 시작: {midi_data}")
         # MIDI 데이터가 있으면 처리
         if midi_data and isinstance(midi_data, dict) and 'notes' in midi_data:
             has_midi = True
             notes = midi_data.get('notes', [])
             tempos = midi_data.get('tempos', [])
             tempo_times = midi_data.get('tempo_times', [])
+
+            logger.info(f"MIDI 데이터 처리 시작: {len(notes)} 개 노트, {len(tempos)} 개 템포, {len(tempo_times)} 개 템포 시간")
             
             self.update_state(state='PROCESSING', meta={'progress': 35})
             user_segments, user_timestamps = segment_audio_with_midi_notes(user_y, time_mapping, notes, sr)
@@ -248,6 +252,7 @@ def compare_audio(self, user_audio_bytes, user_id=None, song_id=None, generate_f
         # MIDI 없이 발음 시작점 기반 세그먼트 생성
         self.update_state(state='PROCESSING', meta={'progress': 35})
         user_onsets = extract_onsets(user_y, sr)
+        logger.info(f"발음 시작점 추출 완료: {len(user_onsets)} 개")
         ref_onsets = ref_features['features']['onsets']
         
         # 세그먼트 생성
@@ -271,8 +276,9 @@ def compare_audio(self, user_audio_bytes, user_id=None, song_id=None, generate_f
     
     # 5. 음정 추출 (50-60%)
     self.update_state(state='PROCESSING', meta={'progress': 50})
-    # user_pitches = extract_pitch_with_crepe(user_segments, sr)
-    user_pitches = extract_pitch_with_pyin(user_segments, sr)
+    logger.info(f"음정 추출 시작: {len(user_segments)} 세그먼트")
+    user_pitches = extract_pitch_with_crepe(user_segments, sr)
+    # user_pitches = extract_pitch_with_pyin(user_segments, sr)
     self.update_state(state='PROCESSING', meta={'progress': 60})
     # ref_pitches = extract_pitch_with_crepe(ref_segments, sr)
     ref_pitches = ref_features['features']['pitches']
@@ -508,10 +514,12 @@ def analyze_reference_audio(self, audio_bytes, song_id, midi_bytes=None, descrip
         # 2. 템포 추출 (20%)
         self.update_state(state='PROCESSING', meta={'progress': 20})
         tempo = extract_tempo(y, sr)
+        logger.info(f"템포 추출 완료: {tempo}")
         
         # 3. 노트 시작점 추출 (30%)
         self.update_state(state='PROCESSING', meta={'progress': 30})
         onsets = extract_onsets(y, sr)
+        logger.info(f"노트 시작점 추출 완료: {len(onsets)} 개")
         
         # 4. MIDI 로드 및 세그먼트 생성 (40%)
         self.update_state(state='PROCESSING', meta={'progress': 40})
@@ -522,7 +530,7 @@ def analyze_reference_audio(self, audio_bytes, song_id, midi_bytes=None, descrip
             # MIDI 파일이 제공된 경우
             try:
                 notes, tempos, tempo_times = load_midi_from_bytes(midi_bytes)
-                
+                logger.info(f"MIDI 데이터 로드 완료: {len(notes)} 개 노트, {len(tempos)} 개 템포, {len(tempo_times)} 개 템포 시간")
                 # 노트 정보를 기반으로 세그먼트 생성
                 for i in range(len(notes) - 1):
                     start = int(notes[i]['start'] * sr)
@@ -569,8 +577,8 @@ def analyze_reference_audio(self, audio_bytes, song_id, midi_bytes=None, descrip
         self.update_state(state='PROCESSING', meta={'progress': 60})
         pitches = []
         try:
-            # pitches = extract_pitch_with_crepe(segments, sr)
-            pitches = extract_pitch_with_pyin(segments, sr)
+            pitches = extract_pitch_with_crepe(segments, sr)
+            # pitches = extract_pitch_with_pyin(segments, sr)
         except Exception as e:
             logger.error(f"음정 추출 중 오류 발생: {str(e)}")
             # 오류 발생 시 빈 값 할당

@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.9-slim-bullseye
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -7,13 +7,15 @@ ENV TF_ENABLE_ONEDNN_OPTS=0
 
 WORKDIR /srv
 
-# 시스템 및 빌드 의존성 설치 (ARM 호환성 강화)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
+# 기본 시스템 패키지 및 SSH 관련 패키지 설치
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     libsndfile1 \
     ffmpeg \
-    libhdf5-dev \
+    git \
+    ssh \
+    autossh \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,5 +34,14 @@ COPY . .
 RUN mkdir -p /srv/models
 RUN if [ -f "guitar_technique_classifier.keras" ]; then cp guitar_technique_classifier.keras /srv/models/; fi
 
-# FastAPI 실행 - 호환되는 Uvicorn 옵션만 사용
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--limit-concurrency", "100", "--timeout-keep-alive", "300"]
+# SSH 디렉토리 생성 및 권한 설정
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+# 시작 스크립트 설정
+COPY scripts/docker_entrypoint.sh /usr/local/bin/docker_entrypoint.sh
+RUN chmod +x /usr/local/bin/docker_entrypoint.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["/usr/local/bin/docker_entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

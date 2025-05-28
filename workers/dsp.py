@@ -10,6 +10,10 @@ from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
 import crepe
 import scipy.signal
+import time
+from celery.utils.log import get_task_logger
+
+logger = get_task_logger(__name__)
 
 # SciPy 호환성 패치: 최신 버전에서는 scipy.signal.hann이 windows 모듈로 이동함
 if not hasattr(scipy.signal, 'hann') and hasattr(scipy.signal, 'windows') and hasattr(scipy.signal.windows, 'hann'):
@@ -36,6 +40,7 @@ def load_midi_from_bytes(midi_bytes):
 def parse_midi(midi_path):
     """Parse MIDI file to extract notes, tempo and time information."""
     midi_data = pretty_midi.PrettyMIDI(midi_path)
+    logger.info(f"MIDI 데이터 로드 완료: {midi_data.instruments}")
     notes = []
     for instrument in midi_data.instruments:
         for note in instrument.notes:
@@ -48,6 +53,7 @@ def parse_midi(midi_path):
     tempo_changes = midi_data.get_tempo_changes()
     tempos = tempo_changes[1]
     tempo_times = tempo_changes[0]
+    logger.info(f"MIDI 데이터 로드 완료: {len(notes)} 개 노트, {len(tempos)} 개 템포, {len(tempo_times)} 개 템포 시간")
     return notes, tempos, tempo_times
 
 
@@ -274,6 +280,26 @@ def enhanced_segment_audio_with_midi_notes(y, time_mapping, notes, sr=22050, sea
 
 def extract_pitch_with_pyin(segments, sr=22050):
     """YIN 알고리즘을 사용한 대체 음정 추출 방법 (CREPE의 백업으로 사용)."""
+    # GPU 서버 사용 시도
+    try:
+        from workers.gpu_client import gpu_client, is_gpu_service_available
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if is_gpu_service_available():
+            # GPU 서버에 요청 보내기
+            logger.info("GPU 서버 연결 가능: 원격 pYIN 음정 추출 시도")
+            gpu_result = gpu_client.extract_pitch_with_pyin(segments, sr)
+            if gpu_result is not None:
+                logger.info(f"GPU 서버에서 pYIN 음정 추출 완료: {len(gpu_result)} 개 세그먼트")
+                return gpu_result
+            # GPU 요청 실패 시 로컬에서 계속 실행
+            logger.warning("GPU 서버 요청 실패: 로컬 CPU 폴백 실행")
+    except ImportError:
+        # gpu_client 모듈을 찾을 수 없는 경우
+        pass
+    
+    # 로컬 CPU 기반 실행 (원래 구현)
     pitches = []
     for segment in segments:
         if len(segment) < sr * 0.01:
@@ -311,6 +337,27 @@ def extract_pitch_with_adaptive(segments, sr=22050):
 
 def extract_pitch_with_crepe(segments, sr=22050):
     """Extract pitch information using CREPE model."""
+    # GPU 서버 사용 시도
+    try:
+        from workers.gpu_client import gpu_client, is_gpu_service_available
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if is_gpu_service_available():
+            # GPU 서버에 요청 보내기
+            logger.info(f"GPU 서버 연결 가능: 원격 CREPE 음정 추출 시도, 세그먼트 수: {len(segments)}")
+            logger.info("GPU 서버 연결 가능: 원격 CREPE 음정 추출 시도")
+            gpu_result = gpu_client.extract_pitch_with_crepe(segments, sr)
+            if gpu_result is not None:
+                logger.info(f"GPU 서버에서 CREPE 음정 추출 완료: {len(gpu_result)} 개 세그먼트")
+                return gpu_result
+            # GPU 요청 실패 시 로컬에서 계속 실행
+            logger.warning("GPU 서버 요청 실패: 로컬 CPU 폴백 실행")
+    except ImportError:
+        # gpu_client 모듈을 찾을 수 없는 경우
+        pass
+    
+    # 로컬 CPU 기반 실행 (원래 구현)
     pitches = []
     for segment in segments:
         if len(segment) < sr * 0.01:
@@ -402,6 +449,43 @@ def wav_to_spectrogram(y, sr=22050, n_fft=512, hop_length=20, n_mels=128, target
 
 def predict_techniques(segments, model_path, sr=22050):
     """Predict guitar techniques used in audio segments."""
+    # GPU 서버 사용 시도
+    try:
+        from workers.gpu_client import gpu_client, is_gpu_service_available
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if is_gpu_service_available():
+            # GPU 서버에 요청 보내기
+            segment_count = len(segments)
+            logger.info(f"GPU 서버 연결 가능: 원격 기법 예측 시도. 총 세그먼트 수: {segment_count}")
+            
+            # 세그먼트가 큰 경우 경고 표시
+            if segment_count > 100:
+                logger.warning(f"세그먼트 수가 많습니다 ({segment_count}개). 배치 처리가 필요할 수 있습니다.")
+            
+            # 세그먼트 크기 정보 로깅
+            if segments:
+                avg_segment_size = sum(len(s) for s in segments) / len(segments)
+                min_segment_size = min(len(s) for s in segments)
+                max_segment_size = max(len(s) for s in segments)
+                logger.info(f"세그먼트 크기 통계: 평균={avg_segment_size:.1f}, 최소={min_segment_size}, 최대={max_segment_size} 샘플")
+            
+            # GPU 서비스에 요청
+            start_time = time.time()
+            gpu_result = gpu_client.predict_techniques(segments, sr)
+            elapsed_time = time.time() - start_time
+            
+            if gpu_result is not None:
+                logger.info(f"GPU 서버에서 기법 예측 완료: {len(gpu_result)} 개 세그먼트, 소요 시간: {elapsed_time:.2f}초")
+                return gpu_result
+            # GPU 요청 실패 시 로컬에서 계속 실행
+            logger.warning(f"GPU 서버 요청 실패: 로컬 CPU 폴백 실행, 경과 시간: {elapsed_time:.2f}초")
+    except ImportError:
+        # gpu_client 모듈을 찾을 수 없는 경우
+        pass
+    
+    # 로컬 CPU 기반 실행 (원래 구현)
     techniques = ["bend", "hammer", "normal", "pull", "slide", "vibrato"]
     model = load_model(model_path)
     

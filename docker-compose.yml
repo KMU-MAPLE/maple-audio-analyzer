@@ -6,6 +6,10 @@ services:
       - MAX_UPLOAD_SIZE=100MB
       - MONGO_URI=mongodb://mongo:27017/
       - MONGO_DB_NAME=maple_audio_db
+      - GPU_INFERENCE_SERVICE_URL=http://172.17.0.1:8888
+      - GPU_REQUEST_TIMEOUT=120
+      - GPU_BATCH_SIZE=50
+      - SSH_TUNNEL=false
     ports:
       - "8000:8000"
     volumes:
@@ -20,6 +24,10 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo:27017/
       - MONGO_DB_NAME=maple_audio_db
+      - GPU_INFERENCE_SERVICE_URL=http://172.17.0.1:8888
+      - GPU_REQUEST_TIMEOUT=120
+      - GPU_BATCH_SIZE=50
+      - SSH_TUNNEL=false
     command: celery -A workers.tasks worker -l info
     volumes:
       - ./models:/srv/models
